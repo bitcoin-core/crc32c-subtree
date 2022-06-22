@@ -64,9 +64,6 @@ else(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti")
 endif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
 
-option(CRC32C_BUILD_TESTS "Build CRC32C's unit tests" ON)
-option(CRC32C_BUILD_BENCHMARKS "Build CRC32C's benchmarks" ON)
-option(CRC32C_USE_GLOG "Build CRC32C's tests with Google Logging" ON)
 option(CRC32C_INSTALL "Install CRC32C's header and library" ON)
 
 include(TestBigEndian)
@@ -179,37 +176,6 @@ int main() {
 }
 " HAVE_WEAK_GETAUXVAL)
 
-if(CRC32C_USE_GLOG)
-  # glog requires this setting to avoid using dynamic_cast.
-  set(DISABLE_RTTI ON CACHE BOOL "" FORCE)
-
-  # glog's test targets trigger deprecation warnings, and compiling them burns
-  # CPU cycles on the CI.
-  set(BUILD_TESTING_SAVED "${BUILD_TESTING}")
-  set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
-  add_subdirectory("third_party/glog" EXCLUDE_FROM_ALL)
-  set(BUILD_TESTING "${BUILD_TESTING_SAVED}" CACHE BOOL "" FORCE)
-
-  # glog triggers deprecation warnings on OSX.
-  # https://github.com/google/glog/issues/185
-  if(CRC32C_HAVE_NO_DEPRECATED)
-    set_property(TARGET glog APPEND PROPERTY COMPILE_OPTIONS -Wno-deprecated)
-  endif(CRC32C_HAVE_NO_DEPRECATED)
-
-  # glog triggers sign comparison warnings on gcc.
-  if(CRC32C_HAVE_NO_SIGN_COMPARE)
-    set_property(TARGET glog APPEND PROPERTY COMPILE_OPTIONS -Wno-sign-compare)
-  endif(CRC32C_HAVE_NO_SIGN_COMPARE)
-
-  # glog triggers unused parameter warnings on clang.
-  if(CRC32C_HAVE_NO_UNUSED_PARAMETER)
-    set_property(TARGET glog
-                 APPEND PROPERTY COMPILE_OPTIONS -Wno-unused-parameter)
-  endif(CRC32C_HAVE_NO_UNUSED_PARAMETER)
-
-  set(CRC32C_TESTS_BUILT_WITH_GLOG 1)
-endif(CRC32C_USE_GLOG)
-
 configure_file(
   "src/crc32c_config.h.in"
   "${PROJECT_BINARY_DIR}/include/crc32c/crc32c_config.h"
@@ -310,92 +276,6 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   set_property(TARGET crc32c_arm64 APPEND PROPERTY COMPILE_OPTIONS "/WX")
   set_property(TARGET crc32c_sse42 APPEND PROPERTY COMPILE_OPTIONS "/WX")
 endif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-
-if(CRC32C_BUILD_TESTS)
-  enable_testing()
-
-  # Prevent overriding the parent project's compiler/linker settings on Windows.
-  set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-  set(install_gtest OFF)
-  set(install_gmock OFF)
-
-  # This project is tested using GoogleTest.
-  add_subdirectory("third_party/googletest")
-
-  # GoogleTest triggers a missing field initializers warning.
-  if(CRC32C_HAVE_NO_MISSING_FIELD_INITIALIZERS)
-    set_property(TARGET gtest
-        APPEND PROPERTY COMPILE_OPTIONS -Wno-missing-field-initializers)
-    set_property(TARGET gmock
-        APPEND PROPERTY COMPILE_OPTIONS -Wno-missing-field-initializers)
-  endif(CRC32C_HAVE_NO_MISSING_FIELD_INITIALIZERS)
-
-  add_executable(crc32c_tests "")
-  target_sources(crc32c_tests
-    PRIVATE
-      "${PROJECT_BINARY_DIR}/include/crc32c/crc32c_config.h"
-      "src/crc32c_arm64_unittest.cc"
-      "src/crc32c_extend_unittests.h"
-      "src/crc32c_portable_unittest.cc"
-      "src/crc32c_prefetch_unittest.cc"
-      "src/crc32c_read_le_unittest.cc"
-      "src/crc32c_round_up_unittest.cc"
-      "src/crc32c_sse42_unittest.cc"
-      "src/crc32c_unittest.cc"
-      "src/crc32c_test_main.cc"
-  )
-  target_link_libraries(crc32c_tests crc32c gtest)
-
-  # Warnings as errors in Visual Studio for this project's targets.
-  if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-    set_property(TARGET crc32c_tests APPEND PROPERTY COMPILE_OPTIONS "/WX")
-  endif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-
-  if(CRC32C_USE_GLOG)
-    target_link_libraries(crc32c_tests glog)
-  endif(CRC32C_USE_GLOG)
-
-  add_test(NAME crc32c_tests COMMAND crc32c_tests)
-
-  add_executable(crc32c_capi_tests "")
-  target_sources(crc32c_capi_tests
-    PRIVATE
-      "src/crc32c_capi_unittest.c"
-  )
-  target_link_libraries(crc32c_capi_tests crc32c)
-
-  # Warnings as errors in Visual Studio for this project's targets.
-  if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-    set_property(TARGET crc32c_capi_tests APPEND PROPERTY COMPILE_OPTIONS "/WX")
-  endif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-
-  add_test(NAME crc32c_capi_tests COMMAND crc32c_capi_tests)
-endif(CRC32C_BUILD_TESTS)
-
-if(CRC32C_BUILD_BENCHMARKS)
-  add_executable(crc32c_bench "")
-  target_sources(crc32c_bench
-    PRIVATE
-      "${PROJECT_BINARY_DIR}/include/crc32c/crc32c_config.h"
-      "src/crc32c_benchmark.cc"
-  )
-  target_link_libraries(crc32c_bench crc32c)
-
-  # This project uses Google benchmark for benchmarking.
-  set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
-  set(BENCHMARK_ENABLE_EXCEPTIONS OFF CACHE BOOL "" FORCE)
-  add_subdirectory("third_party/benchmark")
-  target_link_libraries(crc32c_bench benchmark)
-
-  if(CRC32C_USE_GLOG)
-    target_link_libraries(crc32c_bench glog)
-  endif(CRC32C_USE_GLOG)
-
-  # Warnings as errors in Visual Studio for this project's targets.
-  if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-    set_property(TARGET crc32c_bench APPEND PROPERTY COMPILE_OPTIONS "/WX")
-  endif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-endif(CRC32C_BUILD_BENCHMARKS)
 
 if(CRC32C_INSTALL)
   install(TARGETS crc32c
